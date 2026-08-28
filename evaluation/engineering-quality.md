@@ -43,6 +43,12 @@ Executed on Python 3.11.9 with pytest 8.2.2. All 148 tests passed cleanly in 29.
 | `test_synonyms.py` | **12** | Canadian Synonyms | Canadian retail synonym mapping (`soya` $\to$ `soy`, `yogourt` $\to$ `yogurt`, `kraft dinner` $\to$ `macaroni and cheese`). |
 | **TOTAL** | **148** | — | **100% Passed (0 Failures, 0 Regressions)** |
 
+> [!NOTE]
+> **Test Environment & Clean-Machine Reproducibility**:
+> The 148 passing backend tests (172 total across both repositories) were verified in the populated development environment where the canonical dataset artifact (`data/raw/normalized.parquet`) is in place.
+> 
+> On a fresh clone without the Parquet dataset, executing `pytest backend/tests/` yields **143 passed / 5 failed** tests because 5 retrieval/pipeline tests directly depend on reading the Parquet file from disk. Decoupling data-dependent tests using synthetic test fixtures is an active engineering follow-up so that 100% of unit tests can pass out-of-the-box on clean machines.
+
 ---
 
 ## 3. Frontend Test Suite Breakdown (`vitest run`)

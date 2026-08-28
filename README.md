@@ -338,6 +338,12 @@ Every component adheres to senior software engineering quality standards:
 | **Container Hygiene** | **IMPLEMENTED** | Multi-stage Dockerfile running as unprivileged `appuser` (UID 10001) with native `/health` probe. |
 | **Accessibility-Focused**| **IMPLEMENTED** | Semantic HTML, `:focus-visible` keyboard rings, and `prefers-reduced-motion` compliance. *(No formal third-party audit performed).* |
 
+> [!NOTE]
+> **Test Environment & Clean-Machine Reproducibility**:
+> The 148 passing backend tests (172 total across both repositories) were verified in the populated development environment where the canonical dataset artifact (`data/raw/normalized.parquet`) is in place.
+> 
+> On a fresh clone where the Parquet dataset has not yet been acquired, running `pytest backend/tests/` yields **143 passed / 5 failed** tests because 5 retrieval/pipeline tests directly read the Parquet file from disk. Decoupling data-dependent tests using synthetic test fixtures is an active engineering follow-up.
+
 *For the comprehensive quality audit, see [evaluation/engineering-quality.md](evaluation/engineering-quality.md).*
 
 ---
@@ -346,23 +352,112 @@ Every component adheres to senior software engineering quality standards:
 
 | Subsystem / Area | Engineering Status | Operational Details |
 |---|---|---|
-| **Dataset Extraction** | **COMPLETED & VERIFIED** | 124,145 Canadian products, 25 columns, ZSTD Parquet (21.8 MB). |
-| **Data Ingestion Pipeline** | **COMPLETED & VERIFIED** | `OFFAdapter`, `ComplimentsAdapter`, memory-safe DuckDB cursor streaming. |
+| **Dataset Extraction** | **COMPLETED & VERIFIED** | 124,145 Canadian products, 25 columns, ZSTD Parquet (21.8 MB). Published on Hugging Face & Kaggle. |
+| **Data Ingestion Pipeline** | **COMPLETED & VERIFIED** | `OFFAdapter`, `ComplimentsAdapter`, memory-safe DuckDB cursor streaming. Requires dataset artifact. |
 | **Query Understanding** | **COMPLETED & VERIFIED** | Decouples recipe quantities, typos, Canadian synonyms, and numeric bounds. |
-| **OpenSearch Cluster** | **COMPLETED & VERIFIED** | Tiered BM25 scoring, completeness function weighting, blue/green alias swap. |
+| **OpenSearch Cluster** | **COMPLETED & VERIFIED** | Tiered BM25 scoring, completeness function weighting, blue/green alias swap. Clean clone requires volume pre-creation. |
 | **FastAPI REST API** | **COMPLETED & VERIFIED** | 6 documented endpoints with OpenAPI specifications and sub-50ms execution. |
-| **Search Evaluation** | **COMPLETED & VERIFIED** | 35-query benchmark (86.59% NDCG@10) and 69-query black-box audit (99.41% relevance). |
+| **Search Evaluation** | **COMPLETED & VERIFIED** | 35-query benchmark (86.59% NDCG@10) and 69-query black-box audit (99.41% relevance) in populated environment. |
 | **Frontend WebApp** | **COMPLETED & VERIFIED** | 10 lazy-loaded routes, 16 UI components, side-by-side comparison, OffBot. |
-| **Automated Test Suites** | **COMPLETED & VERIFIED** | 172 passing tests (148 backend pytest, 24 frontend Vitest). |
+| **Automated Test Suites** | **COMPLETED & VERIFIED** | 172 passing tests (148 backend pytest in populated env, 24 frontend Vitest). 143 passed / 5 failed on fresh clone without data. |
 | **Documentation** | **COMPLETED & VERIFIED** | Full architectural guides, evaluation specifications, and contributor manuals. |
 | **Production Deployment**| **PENDING MAINTAINER ACTION**| Container implementation ready; public hosting awaits maintainer infrastructure. |
 
 > [!NOTE]
-> **Deployment Status Distinction**: The backend and frontend repositories are publicly accessible on GitHub under `offCanada`, and local development execution via Docker Compose is verified. However, **the application is not yet publicly deployed on a live domain**, and there are no live public users at this time. Public production cloud hosting and official domain assignment remain pending infrastructure scheduling and allocation by Open Food Facts core maintainers.
+> **Deployment Status Distinction**: The backend and frontend repositories are publicly accessible on GitHub under `offCanada`, and local development execution via Docker Compose is verified when populated. However, **the application is not yet publicly deployed on a live domain**, and there are no live public users at this time. Public production cloud hosting and official domain assignment remain pending infrastructure scheduling and allocation by Open Food Facts core maintainers.
+
+### Fresh-Machine / macOS Reproducibility Status
+
+A clean-machine verification test was performed on a fresh clone of `offCanada/AskOFF-Search` on:
+- **Operating System**: macOS 26.5.2
+- **Architecture**: Apple Silicon `arm64`
+- **Python Version**: Python 3.11.14
+- **Docker Version**: Docker 29.3.1
+- **Docker Compose**: Docker Compose v5.1.0
+
+The test confirmed that the backend repository can be cloned and Python dependencies can be installed successfully on macOS/Apple Silicon, but the complete search stack is **not currently self-contained from a fresh clone** because the generated dataset artifact is not committed to the repository.
+
+#### Clean-Machine Test Observations
+1. **Git Clone**: PASS (`git clone` succeeds cleanly).
+2. **Python Dependencies**: PASS (Python 3.11 virtual environment and `backend/requirements.txt` install cleanly).
+3. **FastAPI Startup**: PASS (FastAPI server starts, `/docs` interactive Swagger responds).
+4. **OpenSearch Container Startup**: REQUIRES volume setup. Running `docker compose up -d opensearch` fails on a fresh machine with:
+   ```
+   external volume "ask-off-webapp_askoff-os-data" not found
+   ```
+   This occurs because the compose configuration expects an external volume. A temporary workaround is to pre-create the volume:
+   ```bash
+   docker volume create ask-off-webapp_askoff-os-data
+   docker compose up -d opensearch
+   ```
+   *(This is a temporary workaround only; the compose configuration should eventually be normalized so clean developer machines do not depend on pre-existing external volumes).*
+5. **Dataset Availability**: FAIL on fresh clone. The backend expects a generated dataset at:
+   - `data/raw/normalized.parquet` and/or
+   - `data/raw/off_canada_with_images.parquet`
+   
+   These generated artifacts are intentionally omitted from Git version control due to file size constraints, and the repository does not yet provide an automated fresh-clone setup script.
+6. **Index Bootstrap**: FAIL on fresh clone because `data/raw/normalized.parquet` is missing.
+7. **Search & Product Retrieval**:
+   - Keyword search responds with HTTP 200 but returns **0 products**.
+   - Product lookup by barcode returns **HTTP 404**.
+   - Natural language parsing correctly extracts query constraints, but retrieval returns **0 products**.
+   *(0 results is not evidence that the search algorithm is incorrect; the index was never populated).*
+8. **Backend Unit Tests**: Running `pytest backend/tests/` yields **143 passed / 5 failed** tests because 5 retrieval/pipeline tests expect the missing Parquet dataset.
+
+> [!IMPORTANT]
+> **Root Cause Attribution**: The clean-machine test was performed on macOS/Apple Silicon, but the primary blockers are repository setup and missing data artifacts rather than an Apple Silicon-specific incompatibility.
+
+#### Fresh-Clone Operational Status Breakdown
+
+| Step | Fresh clone status | Notes |
+|---|---|---|
+| Clone repository | **VERIFIED** | Clean clone succeeds on all supported platforms. |
+| Install Python dependencies | **VERIFIED** | Installs cleanly via `pip install -r backend/requirements.txt`. |
+| Start FastAPI without data | **VERIFIED** | FastAPI starts, OpenAPI docs at `/docs` respond. |
+| Start OpenSearch on clean machine | **REQUIRES volume setup** | Fails on fresh machine unless external volume is pre-created. |
+| Obtain canonical dataset | **REQUIRES dataset acquisition/generation** | Dataset artifacts are not committed to Git. |
+| Bootstrap populated index | **BLOCKED** | Blocked until Parquet dataset is available at expected path. |
+| Search products | **BLOCKED** | API responds but returns 0 products (index is empty). |
+| Product lookup | **BLOCKED** | API responds with 404 (index is empty). |
+
+#### macOS / Apple Silicon Notes
+The application dependencies and FastAPI service were successfully installed/run on macOS Apple Silicon during the clean-machine test. Full product-search functionality requires the external/generated dataset and OpenSearch index setup described below.
+
+- **Recommended Python**: Python 3.11 (tested on 3.11.14).
+- **Environment Setup**:
+  ```bash
+  python3.11 -m venv .venv
+  source .venv/bin/activate
+  python -m pip install --upgrade pip
+  pip install -r backend/requirements.txt
+  ```
+  *(These commands install the application dependencies but do not provide the missing food dataset).*
+- **Verify Architecture**:
+  ```bash
+  python --version
+  uname -m
+  ```
+  On Apple Silicon, expected architecture is `arm64`.
+- **Docker Desktop**: Must be installed, running, with Docker Compose v2+ available.
+- **OpenSearch**: Start OpenSearch only after resolving the external volume requirement.
+- **Dataset Prerequisite**: Before index bootstrap, a compatible normalized Parquet dataset must be made available at the path expected by the backend.
+
+Official dataset resources for obtaining or regenerating the dataset:
+- **Hugging Face**: [`offCanada/openfoodfacts-canada`](https://huggingface.co/datasets/offCanada/openfoodfacts-canada)
+- **Generation Notebook**: [`OFF_Canada_Data_Code.ipynb`](https://huggingface.co/datasets/offCanada/openfoodfacts-canada/blob/main/OFF_Canada_Data_Code.ipynb)
+- **Kaggle**: [`saitejakommi/open-food-facts-canada-dataset`](https://www.kaggle.com/datasets/saitejakommi/open-food-facts-canada-dataset)
 
 ---
 
 ## 15. What Remains & Future Work
+
+### Known Reproducibility Gaps & Engineering Follow-Ups
+The clean-machine test exposed actionable developer experience gaps to resolve:
+1. **Documented Dataset Acquisition Flow**: Make dataset acquisition or generation an explicit, automated part of the documented contributor setup flow.
+2. **Artifact Distribution Strategy**: Decide whether the generated dataset should be downloaded automatically, stored externally, or generated from the published dataset.
+3. **Normalize Docker Compose Configuration**: Remove the dependency on a pre-existing external Docker volume (`ask-off-webapp_askoff-os-data`) so clean developer machines do not require manual volume creation.
+4. **Decouple Data-Dependent Tests**: Make data-dependent tests use synthetic fixtures or a clearly documented test dataset where appropriate so unit tests pass 100% on fresh clones.
+5. **Re-Run Clean-Machine Verification**: Re-run the complete clean-machine verification across macOS, Linux, and Windows after these improvements are implemented.
 
 ### Short-Term (Immediate Post-Internship)
 - **Production Cloud Deployment**: Collaborate with Open Food Facts maintainers to provision production server infrastructure, configure SSL certificates, and map official subdomains.

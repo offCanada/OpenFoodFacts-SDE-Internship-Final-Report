@@ -1,6 +1,6 @@
 # Data Engineering — Open Food Facts Canada Dataset
 
-This document details the data engineering lifecycle, schema architecture, transformation logic, and reproducibility steps used to produce the canonical Canadian food dataset for the AskOFF search engine.
+This document details the data engineering lifecycle, schema architecture, transformation logic, dataset availability, and reproducibility steps used to produce the canonical Canadian food dataset for the AskOFF search engine.
 
 ---
 
@@ -174,9 +174,31 @@ Crowd-sourced open data inevitably contains missing or sparse fields:
 
 ---
 
-## 5. Dataset Reproduction & Official Publications
+## 5. Dataset Reproduction, Availability & Fresh-Clone Setup
 
-The complete dataset can be reproduced from scratch using the documented notebook, and is published on public platforms:
+The canonical Canadian dataset is published across official open-data repositories. However, its handling during fresh repository clones represents a critical reproducibility consideration.
+
+### The Missing Dataset Issue on Fresh Clones
+The backend indexing pipeline currently expects a generated Parquet dataset at:
+- `data/raw/normalized.parquet` and/or
+- `data/raw/off_canada_with_images.parquet`
+
+depending on the specific script or pipeline path being executed.
+
+**Key Reproducibility Realities**:
+1. **Intentionally Uncommitted**: These generated Parquet artifacts are intentionally not committed to the Git repository due to binary file size constraints.
+2. **Missing Setup Automation**: The current repository documentation does not yet provide an automated fresh-clone setup script or download target to fetch or reconstruct these artifacts automatically.
+3. **Consequences on Clean Machines**:
+   - Running index bootstrap fails because the source Parquet file is missing.
+   - Without an indexed catalog, keyword search returns **0 products** and product lookup returns **HTTP 404**.
+   - Natural language constraint extraction parses correctly, but retrieval returns **0 products** because the underlying index contains 0 documents.
+   - Running `pytest backend/tests/` results in **143 passed / 5 failed** tests because five tests depend directly on the presence of `data/raw/normalized.parquet`.
+
+> [!IMPORTANT]
+> **Before index bootstrap, a compatible normalized Parquet dataset must be made available at the path expected by the backend.**
+
+### Official Dataset Resources
+Contributors can access or reconstruct the canonical dataset through these official deliverables:
 
 | Resource | Official Location | Description |
 |---|---|---|
@@ -185,20 +207,22 @@ The complete dataset can be reproduced from scratch using the documented noteboo
 | **Kaggle Publication** | [`saitejakommi/open-food-facts-canada-dataset`](https://www.kaggle.com/datasets/saitejakommi/open-food-facts-canada-dataset) | Public community dataset on Kaggle. |
 | **Upstream Source** | [`openfoodfacts/product-database` (split: `food`)](https://huggingface.co/datasets/openfoodfacts/product-database) | Raw global Open Food Facts dataset. |
 
-### Reproduction Steps:
-1. **Open Google Colab** (standard CPU/T4 runtime).
+### Reproduction via Google Colab:
+1. **Open Google Colab** (standard CPU or T4 runtime).
 2. **Install Dependencies**:
    ```bash
    pip install -q datasets duckdb
    ```
 3. **Execute `OFF_Canada_Data_Code.ipynb`**:
-   - Downloads `off_food.parquet` directly from the Hugging Face hub.
-   - Executes DuckDB SQL transformations.
-   - Generates `off_canada_with_images.parquet` (local repository name: `openfoodfacts_canada.parquet`).
-4. **Local Verification**:
+   - Streams `off_food.parquet` directly from the Hugging Face hub.
+   - Executes DuckDB SQL transformations to filter `countries_tags` for Canada.
+   - Constructs CDN URLs for front images.
+   - Generates `off_canada_with_images.parquet` (local repository name: `openfoodfacts_canada.parquet` or `normalized.parquet`).
+4. **Place in Local Repository**:
+   Copy the generated Parquet artifact into `data/raw/` in the `AskOFF-Search` repository before running index bootstrap.
+5. **Local Verification**:
    Run the verification script from the backend repository root:
    ```bash
    python scratch/verify_dataset_stats.py
    ```
    This confirms 124,145 rows, 0 duplicate barcodes, and verified column counts.
-

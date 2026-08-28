@@ -113,20 +113,40 @@ Both repositories enforce automated verification before pull requests are accept
 git clone https://github.com/offCanada/AskOFF-Search.git
 cd AskOFF-Search
 
-# Set up Python virtual environment
-python -m venv .venv
-source .venv/bin/activate  # Or .venv\Scripts\activate on Windows
+# Set up Python virtual environment (Python 3.11 recommended)
+python3.11 -m venv .venv
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install locked dependencies
 pip install -r backend/requirements.txt
 pip install pytest ruff
 
-# Run full test suite (148 passing tests required)
+# Run full test suite
 pytest backend/tests/
 
 # Run static analysis (0 lint errors required)
 ruff check backend/
 ```
+
+> [!IMPORTANT]
+> **Fresh-Clone Test Suite Reality**:
+> In the verified development environment where the dataset artifact is present, all **148 tests pass** cleanly.
+> 
+> However, on a completely fresh clone where `data/raw/normalized.parquet` has not yet been obtained or generated, running `pytest backend/tests/` results in **143 passed / 5 failed** tests. Five retrieval/pipeline tests depend on reading the Parquet file from disk.
+> 
+> An open engineering task is to decouple these data-dependent tests using synthetic test fixtures so that the unit test suite passes 100% on clean clones without external dataset dependencies.
+
+### Local Search Stack & Docker Volume Requirement
+If running the search stack locally for contributor testing:
+```bash
+# Workaround for clean machines: pre-create the expected external volume
+docker volume create ask-off-webapp_askoff-os-data
+
+# Start OpenSearch
+docker compose up -d opensearch
+```
+> [!NOTE]
+> Before index bootstrap, a compatible normalized Parquet dataset must be made available at `data/raw/normalized.parquet` or `data/raw/off_canada_with_images.parquet` as detailed in [docs/data-engineering.md](data-engineering.md).
 
 ### Frontend Setup & Verification
 ```bash
